@@ -4,10 +4,16 @@ from rest_framework import serializers
 
 
 class UserSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = models.CustomUser
         fields = '__all__'
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.CustomUser
+        fields = ['username', 'avatar', 'first_name',
+                  'last_name', ]
 
 
 class LoginSerializer(serializers.ModelSerializer):
