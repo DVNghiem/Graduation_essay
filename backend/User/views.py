@@ -3,12 +3,11 @@ from django.contrib.auth import authenticate, get_user_model
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from uritemplate import partial
 
 #
 from .serializers import UserSerializer, LoginSerializer, ProfileSerializer
@@ -20,7 +19,6 @@ User = get_user_model()
     method='post',
     request_body=openapi.Schema(
         type=openapi.TYPE_OBJECT,
-        # required=['username', 'password'],
         properties={
             'username': openapi.Schema(type=openapi.TYPE_STRING),
             'password': openapi.Schema(type=openapi.TYPE_STRING)
@@ -57,8 +55,6 @@ def login(request):
     request_body=openapi.Schema(
         title='Signin',
         type=openapi.TYPE_OBJECT,
-        # required=[
-        #     'username', 'password', 'first_name', 'last_name', 'email', 'avatar'],
         properties={
             'username': openapi.Schema(type=openapi.TYPE_STRING),
             'password': openapi.Schema(type=openapi.TYPE_STRING),
@@ -134,6 +130,8 @@ def profile(request):
 def update(request):
     rs = ProfileSerializer(instance=request.user,
                            data=request.data, partial=True)
+
     if rs.is_valid():
+        rs.save()
         return Response(status=status.HTTP_200_OK)
     return Response(status=status.HTTP_400_BAD_REQUEST)
