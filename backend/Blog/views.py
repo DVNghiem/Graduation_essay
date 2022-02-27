@@ -141,7 +141,7 @@ def getPost(request, slug):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def getAllPost(request):
-    post = models.Post.objects.all()
+    post = models.Post.objects.all().order_by('id')
     pagination = Paginator(post, 2)
     rs = serializers.PostSerializer(
         pagination.get_page(request.GET['page']), many=True)
