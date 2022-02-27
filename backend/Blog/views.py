@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.core.paginator import Paginator
 from . import serializers
 from . import models
 
@@ -44,7 +45,7 @@ def addPost(request):
 
 
 @swagger_auto_schema(
-    method='post',
+    method='put',
     request_body=openapi.Schema(
         title='Update Post',
         type=openapi.TYPE_OBJECT,
@@ -64,7 +65,7 @@ def addPost(request):
         400: 'FAIL'
     }
 )
-@api_view(['POST'])
+@api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def updatePost(request, slug):
     post = models.Post.objects.get(slug=slug)
@@ -78,7 +79,7 @@ def updatePost(request, slug):
 
 
 @swagger_auto_schema(
-    method='post',
+    method='delete',
 
     manual_parameters=[
         openapi.Parameter('slug', in_=openapi.IN_PATH,
@@ -91,7 +92,7 @@ def updatePost(request, slug):
         400: 'FAIL'
     }
 )
-@api_view(['POST'])
+@api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def deletePost(request, slug):
     try:
@@ -128,14 +129,20 @@ def getPost(request, slug):
 
 @swagger_auto_schema(
     method='get',
+    manual_parameters=[
+        openapi.Parameter('page', in_=openapi.IN_QUERY,
+                          type=openapi.TYPE_INTEGER),
+    ],
     responses={
         200: serializers.PostSerializer(many=True),
         400: 'Fail'
     }
 )
-@api_view(['get'])
+@api_view(['GET'])
 @permission_classes([AllowAny])
 def getAllPost(request):
     post = models.Post.objects.all()
-    rs = serializers.PostSerializer(post, many=True)
+    pagination = Paginator(post, 2)
+    rs = serializers.PostSerializer(
+        pagination.get_page(request.GET['page']), many=True)
     return Response(data=rs.data, status=status.HTTP_200_OK)
