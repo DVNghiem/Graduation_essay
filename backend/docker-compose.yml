@@ -16,7 +16,7 @@ services:
         build: .
         expose:
             - "8000"
-        command: python3 manage.py collectstatic --noinput
+        
         command: uwsgi --http :8000 --module backend.wsgi
         volumes:
             - .:/code
