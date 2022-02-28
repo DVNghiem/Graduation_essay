@@ -1,0 +1,14 @@
+server{
+    listen 80;
+    server_name deepcode.tk;
+    location / {
+                    include uwsgi_params;
+                    uwsgi_pass unix:/run/uwsgi/movies.sock;
+            }
+    location /static {
+                    root /home/ubuntu/WebDoAn/backend;
+            }
+    location /media {
+                    root /home/ubuntu/WebDoAn/backend;
+            }
+}

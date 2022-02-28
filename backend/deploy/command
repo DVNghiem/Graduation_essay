@@ -1,0 +1,52 @@
+# cài đặt và tạo folder
+pip3 install uwsgi
+sudo mkdir -p /etc/uwsgi/apps-available /etc/uwsgi/apps-enabled
+
+# tạo file backend.ini
+sudo nano /etc/uwsgi/apps-available/backend.ini
+
+# tạo folder uwsgi và cấp quyền
+cd /run/
+sudo mkdir -p uwsgi
+sudo chown -R ubuntu:ubuntu uwsgi/
+
+# chạy thử
+cd /etc/uwsgi/apps-available/
+uwsgi --ini backend.ini
+
+# Now uncomment the logto directory in backend.ini
+# The final contents of the file will look like
+cd /var/log
+sudo mkdir -p uwsgi
+sudo chown -R ubuntu:ubuntu uwsgi/
+
+# 
+sudo tail -10f /var/log/uwsgi/backend.log
+
+# copy file
+sudo ln -sf /etc/uwsgi/apps-available/backend.ini /etc/uwsgi/apps-enabled/
+ls -l /etc/uwsgi/apps-enabled/
+
+# 
+sudo nano /etc/systemd/system/uwsgi.service
+
+# 
+sudo systemctl start uwsgi
+ps aux | grep uwsgi
+
+# 
+sudo apt install -f nginx-full
+# 
+sudo nano /etc/nginx/nginx.conf
+# 
+sudo ln -s /etc/nginx/sites-available/backend /etc/nginx/sites-enabled/
+ls -l /etc/nginx/sites-enabled/
+# 
+sudo nginx -t
+sudo systemctl restart uwsgi
+sudo service nginx start
+
+# lỗi
+sudo tail -10f /var/log/nginx/access.log
+sudo tail -10f /var/log/nginx/error.log
+sudo tail -10f /var/log/uwsgi/movies.log
