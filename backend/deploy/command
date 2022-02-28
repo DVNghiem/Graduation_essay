@@ -29,7 +29,7 @@ ls -l /etc/uwsgi/apps-enabled/
 
 # 
 sudo nano /etc/systemd/system/uwsgi.service
-
+/usr/local/bin/uwsgi
 # 
 sudo systemctl start uwsgi
 ps aux | grep uwsgi
