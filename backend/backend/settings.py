@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'User',
     'corsheaders',
     'rest_framework',
+    'chat',
     'drf_yasg',
     'Blog',
 

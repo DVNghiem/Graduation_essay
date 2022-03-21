@@ -32,7 +32,19 @@ class CustomUser(AbstractUser):
     def __str__(self):
         return self.username
 
+class UserRelationship(models.Model):
+    class Meta:
+        unique_together = ['userFirst', 'userSecond']
 
+    userFirst = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='friend_1')
+    userSecond = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='friend_2')
+    type = [('FRIEND', 'friend'), ('BLOCK', 'block')]
+    status = models.CharField(max_length=10, choices=type, default='FRIEND')
+    chatID = models.CharField(max_length=10,  unique=True)
+
+    
 @receiver(models.signals.post_delete, sender=CustomUser)
 def auto_delete_file_on_delete(sender, instance, **kwargs):
     if instance.avatar:
