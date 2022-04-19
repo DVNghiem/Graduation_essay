@@ -1,3 +1,6 @@
 #!/bin/bash
 pip3 install gdown
-gdown https://drive.google.com/uc?id=1jXuCiZ9qbD0JrnWy3Lct4eSHgEDHgs4M
+gdown https://drive.gooigle.com/uc?id=1VwKZw1BXb06UESOa4YDWETJ5NGIcred_
+mkdir checkpoint
+unzip model.zip
+rm model.zip
