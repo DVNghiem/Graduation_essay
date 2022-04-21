@@ -1,33 +1,15 @@
 import tensorflow as tf
 from genz_tokenize import TokenizeForBert
+from genz_tokenize.preprocess import remove_emoji, convert_unicode, vncore_tokenize
 import numpy as np
 import math
 from typing import Dict, List, Optional, Union, Tuple
 from flask import Flask, request
 from flask_restful import Resource, Api
+from vncorenlp import VnCoreNLP
 
-
-app = Flask(__name__)
-api = Api(app)
-
-
-class Chat(Resource):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def post(self):
-        print(request.form['data'])
-        return {'result': 'hello'}
-
-
-api.add_resource(Chat, '/')
-
-if __name__ == '__main__':
-    app.run(debug=True, port=8080)
 
 # ===============================================
-
-
 def get_initializer(initializer_range: float = 0.02) -> tf.initializers.TruncatedNormal:
     return tf.keras.initializers.TruncatedNormal(stddev=initializer_range)
 
@@ -106,14 +88,14 @@ class TFRobertaEmbeddings(tf.keras.layers.Layer):
 
         with tf.name_scope("token_type_embeddings"):
             self.token_type_embeddings = self.add_weight(
-                name="embeddings",
+                name="embeddings_token",
                 shape=[self.type_vocab_size, self.hidden_size],
                 initializer=get_initializer(self.initializer_range),
             )
 
         with tf.name_scope("position_embeddings"):
             self.position_embeddings = self.add_weight(
-                name="embeddings",
+                name="embeddings_position",
                 shape=[self.max_position_embeddings, self.hidden_size],
                 initializer=get_initializer(self.initializer_range),
             )
@@ -678,3 +660,83 @@ class TFRobertaModel(tf.keras.Model):
         start_logits = self.start(tf.squeeze(input=start_logits, axis=-1))
         end_logits = self.end(tf.squeeze(input=end_logits, axis=-1))
         return start_logits, end_logits
+
+
+# ==============================================================
+app = Flask(__name__)
+api = Api(app)
+
+tokenize = TokenizeForBert()
+
+maxlen_c = 702
+maxlen_q = 100
+config = Config()
+config.input_vocab_size = tokenize.vocab_size
+config.target_vocab_size = tokenize.vocab_size
+model = TFRobertaModel(config, maxlen_c)
+
+checkpoint_path = "checkpoint"
+
+ckpt = tf.train.Checkpoint(model=model)
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=2)
+
+if ckpt_manager.latest_checkpoint:
+    ckpt.restore(ckpt_manager.latest_checkpoint)  # .expect_partial()
+    print('Latest checkpoint restored!!')
+
+corenlp = VnCoreNLP(address="http://127.0.0.1", port=9000)
+
+
+class Chat(Resource):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def post(self):
+        question = request.form['question']
+        question = remove_emoji(question)
+        question = convert_unicode(question)
+        question = vncore_tokenize(question, corenlp).lower()
+        # =======================
+        context = request.form['context']
+        context = remove_emoji(context)
+        context = convert_unicode(context)
+        context = vncore_tokenize(context, corenlp).lower()
+
+        q_token = tokenize([question], max_length=maxlen_q,
+                           truncation='longest_first', padding='max_length')
+        c_token = tokenize([context], max_length=800,
+                           truncation='longest_first', padding='max_length')
+        encode_input_ids = tf.convert_to_tensor(
+            q_token['input_ids'], dtype=tf.int32)
+        encode_attention_mask = tf.convert_to_tensor(
+            q_token['attention_mask'], dtype=tf.int32)
+        decode_input_ids = tf.convert_to_tensor(
+            c_token['input_ids'], dtype=tf.int32)
+        decode_attention_mask = tf.convert_to_tensor(
+            c_token['attention_mask'], dtype=tf.int32)
+
+        start, end = model(
+            encoder_inputs=encode_input_ids,
+            encoder_attention_mask=encode_attention_mask,
+            encoder_token_type_id=None,
+            head_mask=None,
+            decoder_inputs=decode_input_ids,
+            decoder_attention_mask=decode_attention_mask,
+            decoder_token_type_id=None,
+        )
+
+        start = np.argmax(start.numpy()[0])
+        end = np.argmax(end.numpy()[0])
+
+        result = context.split()[start:end+1]
+
+        return {
+            'question': question,
+            'result': ' '.join(result).replace('_', ' ')
+        }
+
+
+api.add_resource(Chat, '/')
+
+if __name__ == '__main__':
+    app.run(debug=True, port=8080)
