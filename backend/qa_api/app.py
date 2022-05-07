@@ -8,8 +8,9 @@ from flask import Flask, request
 from flask_restful import Resource, Api
 from vncorenlp import VnCoreNLP
 
-
 # ===============================================
+
+
 def get_initializer(initializer_range: float = 0.02) -> tf.initializers.TruncatedNormal:
     return tf.keras.initializers.TruncatedNormal(stddev=initializer_range)
 

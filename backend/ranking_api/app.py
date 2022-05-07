@@ -1,10 +1,11 @@
 from flask_restful import Resource, Api
 from flask import Flask, request
 import tensorflow as tf
-from genz_tokenize.preprocess import remove_emoji, convert_unicode, vncore_tokenize, remove_punctuations
+from genz_tokenize.preprocess import convert_unicode, vncore_tokenize
 from genz_tokenize import Tokenize
 from vncorenlp import VnCoreNLP
 import numpy as np
+import string
 
 
 label = ['ai', 'cai gi', 'con vat', 'nhu the nao', 'number',
@@ -14,6 +15,14 @@ postag_label = ['B', 'Np', 'Nc', 'Nu', 'N', 'Ny', 'Ni', 'Nb', 'V', 'Vb', 'A',
 
 MAXLEN_C = 1000
 MAXLEN_Q = 277
+
+
+def remove_punc(text):
+    punc = string.punctuation
+    punc = punc.replace('_', '')
+    return ''.join([i for i in text if i not in punc])
+
+# ==================== Model =============================
 
 
 class Embedding(tf.keras.layers.Layer):
@@ -153,110 +162,7 @@ class QuestionAnalys(tf.keras.Model):
         out = self.out3(out)
         return out
 
-
-class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, hidden_size, num_heads, rate):
-        super().__init__()
-        self.mha = tf.keras.layers.MultiHeadAttention(
-            num_heads=num_heads, key_dim=hidden_size//num_heads)
-        self.layerNorm = tf.keras.layers.LayerNormalization()
-        self.fc1 = tf.keras.layers.Dense(hidden_size*4)
-        self.fc2 = tf.keras.layers.Dense(hidden_size, activation='gelu')
-        self.dropout = tf.keras.layers.Dropout(rate)
-
-    def call(self, x, mask, training):
-        hidden_state = self.mha(x, x, x, attention_mask=mask)
-        hidden_state = self.layerNorm(x+hidden_state)
-        hidden_state = self.dropout(hidden_state, training=training)
-        hidden_state = self.fc1(hidden_state)
-        hidden_state = self.fc2(hidden_state)
-        return hidden_state
-
-
-class Encoder(tf.keras.layers.Layer):
-    def __init__(self, hidden_size, num_heads, num_layers, rate):
-        super().__init__()
-        self.layers = [EncoderLayer(hidden_size, num_heads, rate)
-                       for _ in range(num_layers)]
-
-    def call(self, x, mask, training):
-        for layer in self.layers:
-            x = layer(x, mask, training)
-        return x
-
-
-class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, hidden_size, num_heads, rate):
-        super().__init__()
-        self.mha1 = tf.keras.layers.MultiHeadAttention(
-            num_heads=num_heads, key_dim=hidden_size//num_heads)
-        self.layerNorm1 = tf.keras.layers.LayerNormalization()
-        self.mha2 = tf.keras.layers.MultiHeadAttention(
-            num_heads=num_heads, key_dim=hidden_size//num_heads)
-        self.layerNorm2 = tf.keras.layers.LayerNormalization()
-        self.fc1 = tf.keras.layers.Dense(hidden_size*4)
-        self.fc2 = tf.keras.layers.Dense(hidden_size, activation='gelu')
-        self.dropout = tf.keras.layers.Dropout(rate)
-
-    def call(self, x, mask, enc_output, training):
-        hidden_state = self.mha1(x, x, x, attention_mask=mask)
-        hidden_state = self.layerNorm1(x+hidden_state)
-
-        attention_out = self.mha2(hidden_state, enc_output, enc_output)
-        hidden_state = self.layerNorm2(attention_out+hidden_state)
-
-        hidden_state = self.dropout(hidden_state, training=training)
-
-        hidden_state = self.fc1(hidden_state)
-        hidden_state = self.fc2(hidden_state)
-
-        return hidden_state
-
-
-class Decoder(tf.keras.layers.Layer):
-    def __init__(self, hidden_size, num_heads, num_layers, rate):
-        super().__init__()
-        self.layers = [DecoderLayer(hidden_size, num_heads, rate)
-                       for _ in range(num_layers)]
-
-    def call(self, x, mask, enc_output, training):
-        for layer in self.layers:
-            x = layer(x, mask, enc_output, training)
-        return x
-
-
-class Rank(tf.keras.Model):
-    def __init__(self, model_analys, hidden_size, num_heads, num_layers, rate):
-        super().__init__()
-        self.model_analys = model_analys
-        self.model_analys.trainable = False
-        self.hidden_size = hidden_size
-
-        self.encode_question = Encoder(
-            hidden_size, num_heads, num_layers, rate)
-        self.decode_context = Decoder(hidden_size, num_heads, num_layers, rate)
-        self.flatten = tf.keras.layers.Flatten()
-        self.out = tf.keras.layers.Dense(1)
-
-    def call(self, document, question, postag, training=False):
-        ww = self.model_analys([question, postag])
-        ww = tf.expand_dims(ww, axis=-1)
-        ww = tf.repeat(ww, self.hidden_size, axis=-1)
-
-        emb_question = self.model_analys.model_cls.embedding(question)*ww
-        emb_document = self.model_analys.model_cls.embedding(document)
-
-        q_mask = tf.cast(tf.not_equal(question, 0), dtype=tf.int32)[
-            :, tf.newaxis, tf.newaxis, :]
-        c_mask = tf.cast(tf.not_equal(document, 0), dtype=tf.int32)[
-            :, tf.newaxis, tf.newaxis, :]
-
-        enc_output = self.encode_question(emb_question, q_mask, training)
-        dec_output = self.decode_context(
-            emb_document, c_mask, enc_output, training)
-
-        out = self.flatten(dec_output)
-        return self.out(out)
+# ================================= end model =================================
 
 
 def getTypeOfWord(vncore, text):
@@ -279,22 +185,74 @@ def pos_tag(text, vncore):
     return combine
 
 
+class BM25W:
+    def __init__(self, model, documents, b: float = 0.75, k1: float = 1.2) -> None:
+        self.b = b
+        self.k1 = k1
+        self.model = model
+
+        self.num_doc = 0
+        self.fieldLens = []
+        self.frequency_word_in_doc = []
+        self.documents = []
+
+        for document in documents:
+            frequency = {}
+            document = document.lower().split()
+            self.documents.append(document)
+            self.num_doc += 1
+            self.fieldLens.append(len(document))
+            for i in document:
+                try:
+                    frequency[i] += 1
+                except:
+                    frequency[i] = 1
+            self.frequency_word_in_doc.append(frequency)
+        self.avgFieldLen = np.mean(self.fieldLens)
+
+    def cal_w(self, q):
+        input_ids = tokenizer(q, max_len=277, padding=True,
+                              truncation=True)['input_ids']
+        input_ids = np.expand_dims(input_ids, axis=0)
+        postag = np.expand_dims(getTypeOfWord(vncore, q), axis=0)
+        self.w = {}
+        pred = self.model([input_ids, postag])[0]
+        for i, v in enumerate(q.split()):
+            self.w[v] = pred[i]
+
+    def cal_idf(self, q: str) -> float:
+        f_q = sum([1 if q in i else 0 for i in self.documents])
+        return np.log(1+(len(self.documents)-f_q+0.5+self.w[q])/(f_q+0.5))
+
+    def get_score(self, query: str):
+        query = query.lower()
+        self.cal_w(query)
+        query = query.split()
+        scores = []
+        for i, doc in enumerate(self.documents):
+            score = 0
+            for q in query:
+                f = self.frequency_word_in_doc[i].get(q, 0)
+                idf = self.cal_idf(q)
+                score += idf*((f*(self.k1+1+self.w[q]))/(f+self.k1 *
+                              (1-self.b+self.b*(len(doc)/self.avgFieldLen))))
+            scores.append(score)
+        return scores
+
+
 d_model = 256
 num_heads = 6
 tokenizer = Tokenize()
 model_cls = ClassifyModel(tokenizer.vocab_size(), 1000, 256, 3, len(label))
 model_analys = QuestionAnalys(d_model, MAXLEN_Q, model_cls, num_heads)
-model = Rank(model_analys, hidden_size=256,
-             num_heads=4, num_layers=4, rate=0.05)
-ckpt = tf.train.Checkpoint(model=model)
+ckpt = tf.train.Checkpoint(model=model_analys)
 
 ckpt_manager = tf.train.CheckpointManager(ckpt, 'checkpoint', max_to_keep=2)
-
 if ckpt_manager.latest_checkpoint:
     ckpt.restore(ckpt_manager.latest_checkpoint)
     print('Latest checkpoint restored!!')
 
-corenlp = VnCoreNLP(address="http://127.0.0.1", port=9000)
+vncore = VnCoreNLP(address="http://127.0.0.1", port=9000)
 app = Flask(__name__)
 api = Api(app)
 
@@ -306,18 +264,16 @@ class Rank(Resource):
     def post(self):
         document = request.form['document']
         question = request.form['question']
-        question = remove_punctuations(remove_emoji(
-            vncore_tokenize(convert_unicode(question), corenlp)))
+        question = remove_punc(
+            vncore_tokenize(question, vncore)).lower()
         document = document.split('\n')
         document_process = [
-            remove_punctuations(
-                remove_emoji(
-                    vncore_tokenize(
-                        convert_unicode(i),
-                        corenlp
-                    )
+            remove_punc(
+                vncore_tokenize(
+                    i,
+                    vncore
                 )
-            )
+            ).lower()
             for i in document
         ]
         input_question = []
@@ -330,15 +286,15 @@ class Rank(Resource):
                           padding=True, truncation=True)
             input_question.append(q['input_ids'])
             input_context.append(c['input_ids'])
-            input_postag.append(getTypeOfWord(corenlp, question).tolist())
+            input_postag.append(getTypeOfWord(vncore, question).tolist())
         input_question = np.array(input_question, dtype=np.int32)
         input_context = np.array(input_context, dtype=np.int32)
         input_postag = np.array(input_postag, dtype=np.int32)
 
-        predicts = tf.nn.sigmoid(
-            model(input_context, input_question, input_postag)).numpy()
-        index = np.argmax(predicts[:, 0])
-        return {'result': document[index]}
+        bm25 = BM25W(model_analys, documents=document_process)
+        scores = bm25.get_score(question)
+        scores = [str(i.numpy()) for i in scores]
+        return {'result': scores}
 
 
 api.add_resource(Rank, '/')
